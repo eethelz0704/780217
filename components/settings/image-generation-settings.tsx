@@ -50,6 +50,22 @@ const IMAGE_HOSTING_PROVIDER_OPTIONS = [
     { value: "none", label: "不使用图床" },
     { value: "imgbb", label: "ImgBB" },
 ] as const;
+const PROTOCOL_OPTIONS = [
+    { value: "openai-compatible", label: "OpenAI 兼容（gpt-image、dall-e 等）" },
+    { value: "minimax-native", label: "MiniMax 原生（image-01 / image-01-live）" },
+] as const;
+const MINIMAX_SIZE_OPTIONS = [
+    "auto",
+    "1024x1024",
+    "1280x720",
+    "720x1280",
+    "1024x1792",
+    "1792x1024",
+];
+const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
+const OPENAI_DEFAULT_MODEL = "gpt-image-2";
+const MINIMAX_DEFAULT_BASE_URL = "https://api.minimaxi.com/v1";
+const MINIMAX_DEFAULT_MODEL = "image-01";
 const imageGenerationIconStyle = { "--icon-color": "#0EA5E9" } as CSSProperties;
 
 type Status = { success: boolean; message: string };
@@ -116,6 +132,27 @@ export function ImageGenerationSettings() {
     // `size` param still produce the requested orientation.
     const applySize = useCallback((size: string) => {
         persist({ ...settings, size, extraPrompt: withRatioHint(settings.extraPrompt, size) });
+    }, [persist, settings]);
+
+    // 切换协议时,若当前 baseUrl / model 还是另一协议的默认值,顺手填入新协议的默认值,
+    // 避免用户手动改两个字段。已自定义的值保持原样不动。
+    const applyProtocol = useCallback((protocol: ImageGenerationSettingsType["protocol"]) => {
+        const trimmedBaseUrl = settings.baseUrl.trim();
+        const trimmedModel = settings.model.trim();
+        const isOpenAiBaseUrl = !trimmedBaseUrl || trimmedBaseUrl === OPENAI_DEFAULT_BASE_URL;
+        const isMiniMaxBaseUrl = !trimmedBaseUrl || trimmedBaseUrl === MINIMAX_DEFAULT_BASE_URL;
+        const isOpenAiModel = !trimmedModel || trimmedModel === OPENAI_DEFAULT_MODEL;
+        const isMiniMaxModel = !trimmedModel || trimmedModel === MINIMAX_DEFAULT_MODEL;
+
+        const patch: Partial<ImageGenerationSettingsType> = { protocol };
+        if (protocol === "minimax-native") {
+            if (isOpenAiBaseUrl) patch.baseUrl = MINIMAX_DEFAULT_BASE_URL;
+            if (isOpenAiModel) patch.model = MINIMAX_DEFAULT_MODEL;
+        } else {
+            if (isMiniMaxBaseUrl) patch.baseUrl = OPENAI_DEFAULT_BASE_URL;
+            if (isMiniMaxModel) patch.model = OPENAI_DEFAULT_MODEL;
+        }
+        persist({ ...settings, ...patch });
     }, [persist, settings]);
 
     const updateImageHosting = useCallback((patch: Partial<ImageGenerationSettingsType["imageHosting"]>) => {
@@ -216,6 +253,19 @@ export function ImageGenerationSettings() {
 
             <div className="menu-group p-4 flex flex-col gap-4">
                 <div className="flex flex-col gap-1">
+                    <label className="menu-desc ml-1">协议</label>
+                    <Select
+                        value={settings.protocol}
+                        onChange={(event) => applyProtocol(event.target.value as ImageGenerationSettingsType["protocol"])}
+                    >
+                        {PROTOCOL_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </Select>
+                    <span className="menu-desc ml-1">
+                        OpenAI 兼容走 size / quality 字段；MiniMax 原生走 image_size，参考图通过 image_url 字段（base64）发送。
+                    </span>
+                </div>
+
+                <div className="flex flex-col gap-1">
                     <label className="menu-desc ml-1">请求方式</label>
                     <Select
                         value={settings.requestMode}
@@ -296,16 +346,26 @@ export function ImageGenerationSettings() {
                     <div className="flex flex-col gap-1">
                         <label className="menu-desc ml-1">尺寸</label>
                         <Select value={settings.size} onChange={(event) => applySize(event.target.value)}>
-                            {SIZE_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
+                            {(settings.protocol === "minimax-native" ? MINIMAX_SIZE_OPTIONS : SIZE_OPTIONS).map(option => <option key={option} value={option}>{option}</option>)}
                         </Select>
                     </div>
                     <div className="flex flex-col gap-1">
                         <label className="menu-desc ml-1">质量</label>
-                        <Select value={settings.quality} onChange={(event) => updateSettings({ quality: event.target.value })}>
+                        <Select
+                            value={settings.quality}
+                            onChange={(event) => updateSettings({ quality: event.target.value })}
+                            disabled={settings.protocol === "minimax-native"}
+                        >
                             {QUALITY_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}
                         </Select>
                     </div>
                 </div>
+
+                {settings.protocol === "minimax-native" && (
+                    <p className="menu-desc ml-1 opacity-70">
+                        MiniMax 原生协议不支持 quality（已禁用）；参考图通过 image_url 字段以 base64 data URL 形式发送，建议模型填写 image-01-live。
+                    </p>
+                )}
 
                 <div className="flex flex-col gap-1">
                     <label className="menu-desc ml-1">补充提示词</label>

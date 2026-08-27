@@ -6,6 +6,7 @@ export const maxDuration = 120;
 type ImageGenerationRequest = {
   apiKey?: string;
   baseUrl?: string;
+  protocol?: "openai-compatible" | "minimax-native";
   model?: string;
   prompt?: string;
   size?: string;
@@ -130,11 +131,20 @@ async function runImageGeneration(input: ImageGenerationRequest): Promise<{ stat
     if (!model) return { status: 400, body: { error: "缺少模型名" } };
     if (!prompt) return { status: 400, body: { error: "缺少提示词" } };
 
-    const url = buildImageUrl(baseUrl, hasReference ? "edits" : "generations");
+    const isNative = input.protocol === "minimax-native";
+    // 原生协议的参考图也走 generations 端点（JSON 体里 image_url 字段），不分流到 edits。
+    const url = buildImageUrl(baseUrl, hasReference && !isNative ? "edits" : "generations");
     const headers: Record<string, string> = { Authorization: `Bearer ${apiKey}` };
     let body: BodyInit;
 
-    if (hasReference) {
+    if (isNative) {
+      // MiniMax 原生：JSON 体，参考图作为 image_url 字段（base64 data URL）。
+      headers["Content-Type"] = "application/json";
+      const payload: Record<string, unknown> = { model, prompt };
+      if (input.size && input.size !== "auto") payload.image_size = input.size;
+      if (hasReference && input.referenceImageDataUrl) payload.image_url = input.referenceImageDataUrl;
+      body = JSON.stringify(payload);
+    } else if (hasReference) {
       const converted = dataUrlToBlob(input.referenceImageDataUrl || "");
       if (!converted) return { status: 400, body: { error: "参考图格式无效" } };
       const form = new FormData();

@@ -310,22 +310,38 @@ export async function fetchImageGenerationModels(settings: Pick<ImageGenerationS
 // 留空 = 关闭,沿用 Netlify 心跳流式路由。自部署请配置自己的代理地址。
 export const IMAGE_GEN_PROXY_URL = (process.env.NEXT_PUBLIC_IMAGE_GEN_PROXY_URL || "").trim().replace(/\/+$/, "");
 
-async function generateImageDirect(params: {
+type BuiltImageRequest = {
+  url: string;
+  headers: Record<string, string>;
+  body: BodyInit;
+};
+
+// 按当前协议构造生图请求：OpenAI 兼容走 size / quality，参考图走 multipart；
+// MiniMax 原生走 image_size 字段，参考图走 image_url（base64 data URL），始终 JSON body。
+function buildImageGenerationRequest(params: {
   settings: ImageGenerationSettings;
   prompt: string;
   referenceImageDataUrl: string | null;
-  signal?: AbortSignal;
-  /** 走通用代理:请求发往代理地址,真实上游放进 x-upstream-base-url 头 */
   proxyBaseUrl?: string;
-}): Promise<ImageGenerationApiResponse> {
-  const { settings, prompt, referenceImageDataUrl, signal, proxyBaseUrl } = params;
-  throwIfAborted(signal);
+}): BuiltImageRequest {
+  const { settings, prompt, referenceImageDataUrl, proxyBaseUrl } = params;
   const hasReference = Boolean(referenceImageDataUrl);
-  const url = buildImageUrl(proxyBaseUrl || settings.baseUrl, hasReference ? "edits" : "generations");
+  const baseUrl = proxyBaseUrl || settings.baseUrl;
+  const isNative = settings.protocol === "minimax-native";
+  // 原生协议的参考图也走 generations 端点（JSON 体里加 image_url 字段），不分流到 edits。
+  const url = buildImageUrl(baseUrl, hasReference && !isNative ? "edits" : "generations");
   const headers: Record<string, string> = { Authorization: `Bearer ${settings.apiKey}` };
   if (proxyBaseUrl) headers["x-upstream-base-url"] = normalizeBaseUrl(settings.baseUrl);
-  let body: BodyInit;
 
+  if (isNative) {
+    headers["Content-Type"] = "application/json";
+    const payload: Record<string, unknown> = { model: settings.model, prompt };
+    if (settings.size && settings.size !== "auto") payload.image_size = settings.size;
+    if (hasReference && referenceImageDataUrl) payload.image_url = referenceImageDataUrl;
+    return { url, headers, body: JSON.stringify(payload) };
+  }
+
+  let body: BodyInit;
   if (hasReference) {
     const converted = dataUrlToBlob(referenceImageDataUrl || "");
     if (!converted) throw new Error("参考图格式无效");
@@ -345,6 +361,20 @@ async function generateImageDirect(params: {
       ...(settings.quality && settings.quality !== "auto" ? { quality: settings.quality } : {}),
     });
   }
+  return { url, headers, body };
+}
+
+async function generateImageDirect(params: {
+  settings: ImageGenerationSettings;
+  prompt: string;
+  referenceImageDataUrl: string | null;
+  signal?: AbortSignal;
+  /** 走通用代理:请求发往代理地址,真实上游放进 x-upstream-base-url 头 */
+  proxyBaseUrl?: string;
+}): Promise<ImageGenerationApiResponse> {
+  const { settings, prompt, referenceImageDataUrl, signal, proxyBaseUrl } = params;
+  throwIfAborted(signal);
+  const { url, headers, body } = buildImageGenerationRequest({ settings, prompt, referenceImageDataUrl, proxyBaseUrl });
 
   // 总超时 360s,外部 signal 联动;防止上游悬挂导致界面永久转圈。
   // 部分中转的按次生图（如 gpt-image 系）单张实测 3~5 分钟,180s 会在完成前掐断(钱照扣图丢失)。
@@ -435,6 +465,7 @@ async function generateImageViaServer(params: {
       body: JSON.stringify({
         apiKey: settings.apiKey,
         baseUrl: settings.baseUrl,
+        protocol: settings.protocol,
         model: settings.model,
         prompt,
         size: settings.size,
