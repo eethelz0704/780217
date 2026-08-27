@@ -87,7 +87,7 @@ function extractFromObject(data: unknown): ExtractedImage | null {
     }
   }
 
-  for (const key of ["data", "images", "output", "content"]) {
+  for (const key of ["data", "images", "output", "content", "image_urls"]) {
     const value = record[key];
     if (Array.isArray(value)) {
       for (const item of value) {
