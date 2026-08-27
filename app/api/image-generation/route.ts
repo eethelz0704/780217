@@ -100,6 +100,19 @@ function extractFromObject(data: unknown): ExtractedImage | null {
         if (nested) return { ...nested, revisedPrompt: nested.revisedPrompt || revisedPrompt };
       }
     }
+    // MiniMax: data = { image_urls: ["url1", "url2"] }，data 是对象不是数组，
+    // 在这里额外搜索对象内的 image_urls 字段。
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const objValue = value as Record<string, unknown>;
+      const imgUrls = objValue.image_urls;
+      if (Array.isArray(imgUrls)) {
+        for (const item of imgUrls) {
+          if (typeof item === "string" && item.trim() && /^https?:\/\//i.test(item.trim())) {
+            return { kind: "url", url: item.trim(), revisedPrompt };
+          }
+        }
+      }
+    }
   }
 
   return null;
