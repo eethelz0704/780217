@@ -32,8 +32,13 @@ function normalizeBaseUrl(baseUrl: string): string {
     .replace(/\/images$/i, "");
 }
 
-function buildImageUrl(baseUrl: string, mode: "generations" | "edits"): string {
+function buildImageUrl(baseUrl: string, mode: "generations" | "edits" | "minimax"): string {
   const trimmed = baseUrl.trim().replace(/\/+$/, "");
+  if (mode === "minimax") {
+    // MiniMax 原生端点是 /image_generation(单数 image + 下划线 generation),不是 /images/generations。
+    if (/\/image_generation$/i.test(trimmed)) return trimmed;
+    return `${normalizeBaseUrl(trimmed)}/image_generation`;
+  }
   if (/\/images\/(?:generations|edits)$/i.test(trimmed)) {
     return trimmed.replace(/\/images\/(?:generations|edits)$/i, `/images/${mode}`);
   }
@@ -132,8 +137,11 @@ async function runImageGeneration(input: ImageGenerationRequest): Promise<{ stat
     if (!prompt) return { status: 400, body: { error: "缺少提示词" } };
 
     const isNative = input.protocol === "minimax-native";
-    // 原生协议的参考图也走 generations 端点（JSON 体里 image_url 字段），不分流到 edits。
-    const url = buildImageUrl(baseUrl, hasReference && !isNative ? "edits" : "generations");
+    // MiniMax 原生端点是 /image_generation(单数 image + 下划线 generation),不是 /images/generations。
+    // 原生协议的参考图也走同一个端点(JSON 体里加 image_url 字段),不分流到 edits。
+    const url = isNative
+      ? buildImageUrl(baseUrl, "minimax")
+      : buildImageUrl(baseUrl, hasReference ? "edits" : "generations");
     const headers: Record<string, string> = { Authorization: `Bearer ${apiKey}` };
     let body: BodyInit;
 
