@@ -28,6 +28,7 @@ const QUALITY_OPTIONS = ["auto", "low", "medium", "high"];
 // previously-appended hint instead of stacking them when the size changes.
 const RATIO_HINT_MARKER = "【画面比例】";
 const SIZE_RATIO_HINTS: Record<string, string> = {
+    "512x512": "正方形 1:1 构图，square 1:1 composition",
     "1024x1024": "正方形 1:1 构图，square 1:1 composition",
     "1024x1536": "竖向 2:3 构图，vertical portrait composition",
     "1536x1024": "横向 3:2 构图，horizontal landscape composition",
@@ -56,6 +57,7 @@ const PROTOCOL_OPTIONS = [
 ] as const;
 const MINIMAX_SIZE_OPTIONS = [
     "auto",
+    "512x512",
     "1024x1024",
     "1280x720",
     "720x1280",
